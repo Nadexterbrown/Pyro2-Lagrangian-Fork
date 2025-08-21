@@ -1,63 +1,96 @@
+
 from __future__ import annotations
 import numpy as np
 from dataclasses import dataclass
-from .util import rp_get
 
 @dataclass
-class GridView:
-    ilo: int; ihi: int; jlo: int; jhi: int; ng: int
-    x: np.ndarray; y: np.ndarray
-
 class MovingQuadMesh:
-    def __init__(self, rp):
-        self.nx = int(rp_get(rp, "mesh.nx"))
-        self.ny = int(rp_get(rp, "mesh.ny"))
-        self.xmin = float(rp_get(rp, "mesh.xmin", 0.0))
-        self.xmax = float(rp_get(rp, "mesh.xmax"))
-        self.ymin = float(rp_get(rp, "mesh.ymin", 0.0))
-        self.ymax = float(rp_get(rp, "mesh.ymax"))
-        self.ng = int(rp_get(rp, "mesh.ng", 1))
-        xs = np.linspace(self.xmin, self.xmax, self.nx+1)
-        ys = np.linspace(self.ymin, self.ymax, self.ny+1)
-        self.Xn, self.Yn = np.meshgrid(xs, ys, indexing="xy")
-        self.update_geometry()
-    def update_geometry(self):
-        self.Xc = 0.5*(self.Xn[:-1,:-1] + self.Xn[1:,1:])
-        self.Yc = 0.5*(self.Yn[:-1,:-1] + self.Yn[1:,1:])
-        self.dx = np.abs(self.Xn[1:,:-1] - self.Xn[:-1,:-1])
-        self.dy = np.abs(self.Yn[:-1,1:] - self.Yn[:-1,:-1])
-        self.area = self.dx * self.dy
-        self.x_line = self.Xc.mean(axis=0)
-        self.y_line = self.Yc.mean(axis=1)
-    def pyro_grid_view(self) -> GridView:
-        ilo = self.ng; ihi = self.ng + self.nx - 1
-        jlo = self.ng; jhi = self.ng + self.ny - 1
-        return GridView(ilo=ilo, ihi=ihi, jlo=jlo, jhi=jhi, ng=self.ng,
-                        x=self.x_line.copy(), y=self.y_line.copy())
-    def assemble_nodal_velocity(self, ufx, ufy):
+    nx: int
+    ny: int
+    xmin: float
+    xmax: float
+    ymin: float
+    ymax: float
+
+    def __init__(self, nx, ny, xmin, xmax, ymin, ymax):
+        self.nx, self.ny = nx, ny
+        self.xmin, self.xmax, self.ymin, self.ymax = xmin, xmax, ymin, ymax
+        # Node coordinates on a structured grid (ny+1, nx+1, 2)
+        xs = np.linspace(xmin, xmax, nx+1)
+        ys = np.linspace(ymin, ymax, ny+1)
+        X, Y = np.meshgrid(xs, ys, indexing="xy")
+        self.nodes = np.stack([X, Y], axis=-1)
+
+    # Cell-centered geometry
+    @property
+    def nc(self):
+        return self.ny, self.nx
+
+    def cell_centers(self):
+        Xc = 0.25*(self.nodes[:-1, :-1, 0] + self.nodes[1:, :-1, 0] +
+                   self.nodes[:-1,  1:, 0] + self.nodes[1:,  1:, 0])
+        Yc = 0.25*(self.nodes[:-1, :-1, 1] + self.nodes[1:, :-1, 1] +
+                   self.nodes[:-1,  1:, 1] + self.nodes[1:,  1:, 1])
+        return np.stack([Xc, Yc], axis=-1)  # (ny, nx, 2)
+
+    def cell_area(self):
+        # Bilinear quad area via two triangles
+        A = np.zeros((self.ny, self.nx))
+        for j in range(self.ny):
+            for i in range(self.nx):
+                n00 = self.nodes[j, i]
+                n10 = self.nodes[j, i+1]
+                n01 = self.nodes[j+1, i]
+                n11 = self.nodes[j+1, i+1]
+                # two triangles: (n00,n10,n11) and (n00,n11,n01)
+                A[j,i] = 0.5*np.abs(np.cross(n10-n00, n11-n00)) +                          0.5*np.abs(np.cross(n11-n00, n01-n00))
+        return A
+
+    def face_geometry(self):
+        """Return per-face normals and lengths for west/east/south/north."""
         ny, nx = self.ny, self.nx
-        Un = np.zeros((ny+1, nx+1)); Vn = np.zeros((ny+1, nx+1))
-        w = np.zeros((ny+1, nx+1))
-        for j in range(ny):
-            for i in range(1, nx):
-                u = ufx[j, i-1]
-                Un[j, i] += u; Un[j+1, i] += u
-                w[j, i] += 1.0; w[j+1, i] += 1.0
-        for j in range(1, ny):
-            for i in range(nx):
-                v = ufy[j-1, i]
-                Vn[j, i] += v; Vn[j, i+1] += v
-                w[j, i] += 1.0; w[j, i+1] += 1.0
-        w[w==0.0] = 1.0
-        Un /= w; Vn /= w
-        return Un, Vn
-    def move_nodes(self, Un, Vn, dt):
-        self.Xn += dt * Un; self.Yn += dt * Vn
-        self.update_geometry()
-    def cfl_timestep(self, state, cfl: float):
-        a = np.sqrt(np.maximum(state.gamma * state.p / np.maximum(state.rho, 1e-30), 0.0))
-        ell = np.minimum(self.dx, self.dy)
-        with np.errstate(divide='ignore', invalid='ignore'):
-            dt = cfl * np.nanmin(ell / np.maximum(a, 1e-14))
-        if not np.isfinite(dt) or dt <= 0.0: dt = 1e-12
-        return float(dt)
+        # West/East vertical faces
+        Lw = np.linalg.norm(self.nodes[1:, :-1] - self.nodes[:-1, :-1], axis=-1)
+        Le = np.linalg.norm(self.nodes[1:, 1:]  - self.nodes[:-1, 1:],  axis=-1)
+        # South/North horizontal faces
+        Ls = np.linalg.norm(self.nodes[:-1, 1:] - self.nodes[:-1, :-1], axis=-1)
+        Ln = np.linalg.norm(self.nodes[1:,  1:] - self.nodes[1:,  :-1], axis=-1)
+
+        # Normals in initial layout (unit)
+        nw = np.dstack([-np.ones_like(Lw), np.zeros_like(Lw)]); nw /= np.linalg.norm(nw,axis=-1,keepdims=True)
+        ne = np.dstack([ np.ones_like(Le), np.zeros_like(Le)]); ne /= np.linalg.norm(ne,axis=-1,keepdims=True)
+        ns = np.dstack([ np.zeros_like(Ls),-np.ones_like(Ls)]); ns /= np.linalg.norm(ns,axis=-1,keepdims=True)
+        nn = np.dstack([ np.zeros_like(Ln), np.ones_like(Ln)]); nn /= np.linalg.norm(nn,axis=-1,keepdims=True)
+
+        return (nw, ne, ns, nn), (Lw, Le, Ls, Ln)
+
+    def move_nodes(self, faces, dt):
+        """Move nodes by averaging adjacent face velocities (simple, robust)."""
+        ny, nx = self.ny, self.nx
+        u_node = np.zeros_like(self.nodes)
+        w_node = np.zeros(self.nodes.shape[:-1])
+
+        u_w = faces["u_vec_w"]  # (ny, nx, 2)
+        u_e = faces["u_vec_e"]
+        u_s = faces["u_vec_s"]
+        u_n = faces["u_vec_n"]
+
+        # Vertical faces -> add to left/right nodes
+        u_node[:-1, :-1] += u_w; w_node[:-1, :-1] += 1.0
+        u_node[ 1:, :-1] += u_w; w_node[ 1:, :-1] += 1.0
+        u_node[:-1,  1:] += u_e; w_node[:-1,  1:] += 1.0
+        u_node[ 1:,  1:] += u_e; w_node[ 1:,  1:] += 1.0
+
+        # Horizontal faces -> add to south/north nodes
+        u_node[:-1, :-1] += u_s; w_node[:-1, :-1] += 1.0
+        u_node[:-1,  1:] += u_s; w_node[:-1,  1:] += 1.0
+        u_node[ 1:, :-1] += u_n; w_node[ 1:, :-1] += 1.0
+        u_node[ 1:,  1:] += u_n; w_node[ 1:,  1:] += 1.0
+
+        w_node = np.maximum(w_node, 1e-30)
+        u_node /= w_node[..., None]
+        self.nodes += dt * u_node
+
+    def inscribed_diameter(self):
+        A = self.cell_area()
+        return np.sqrt(4.0*A/np.pi)

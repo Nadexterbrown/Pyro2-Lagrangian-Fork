@@ -1,19 +1,28 @@
+
+from __future__ import annotations
 import numpy as np
-def accumulate_cell_updates(mesh, ufx, pfx, ufy, pfy, gamma):
+
+def accumulate_pressure_forces_and_work(mesh, faces):
+    """Sum pressure forces and work for each cell."""
     ny, nx = mesh.ny, mesh.nx
-    dru = np.zeros((ny,nx)); drv = np.zeros((ny,nx)); dE  = np.zeros((ny,nx))
-    for j in range(ny):
-        for i in range(nx+1):
-            p = pfx[j,i]; un = ufx[j,i]
-            L = mesh.dy[j, min(i, nx-1)] if i<nx else mesh.dy[j, nx-1]
-            Fx = - p * L; W  = - p * un * L
-            if i>0:  dru[j,i-1] += Fx; dE[j,i-1]  += W
-            if i<nx: dru[j,i]   -= Fx; dE[j,i]    -= W
-    for j in range(ny+1):
-        for i in range(nx):
-            p = pfy[j,i]; un = ufy[j,i]
-            L = mesh.dx[min(j, ny-1), i] if j<ny else mesh.dx[ny-1, i]
-            Fy = - p * L; W  = - p * un * L
-            if j>0:  drv[j-1,i] += Fy; dE[j-1,i]  += W
-            if j<ny: drv[j,i]   -= Fy; dE[j,i]    -= W
-    return dru, drv, dE
+    mom_rhs = np.zeros((ny, nx, 2))
+    ener_rhs = np.zeros((ny, nx))
+
+    (nw, ne, ns, nn), (Lw, Le, Ls, Ln) = mesh.face_geometry()
+
+    n_w = np.dstack([-np.ones_like(Lw), np.zeros_like(Lw)])
+    n_e = np.dstack([ np.ones_like(Le), np.zeros_like(Le)])
+    n_s = np.dstack([ np.zeros_like(Ls),-np.ones_like(Ls)])
+    n_n = np.dstack([ np.zeros_like(Ln), np.ones_like(Ln)])
+
+    mom_rhs[:, :, :] += -faces["pstar_w"][..., None] * n_w * Lw[..., None]
+    mom_rhs[:, :, :] += -faces["pstar_e"][..., None] * n_e * Le[..., None]
+    mom_rhs[:, :, :] += -faces["pstar_s"][..., None] * n_s * Ls[..., None]
+    mom_rhs[:, :, :] += -faces["pstar_n"][..., None] * n_n * Ln[..., None]
+
+    ener_rhs[:, :] += -(faces["pstar_w"] * (faces["u_vec_w"][...,0])) * Lw
+    ener_rhs[:, :] += -(faces["pstar_e"] * (faces["u_vec_e"][...,0])) * Le
+    ener_rhs[:, :] += -(faces["pstar_s"] * (faces["u_vec_s"][...,1])) * Ls
+    ener_rhs[:, :] += -(faces["pstar_n"] * (faces["u_vec_n"][...,1])) * Ln
+
+    return mom_rhs, ener_rhs

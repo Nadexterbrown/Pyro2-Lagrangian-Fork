@@ -1,40 +1,36 @@
+
+from __future__ import annotations
 import numpy as np
-from .riemann import wall_contact_linear
-from .util import rp_get
+
 class BoundaryManager:
     def __init__(self, rp):
-        self.sides = {
-            'xlb': rp_get(rp, 'mesh.xlboundary', 'reflect'),
-            'xrb': rp_get(rp, 'mesh.xrboundary', 'outflow'),
-            'ylb': rp_get(rp, 'mesh.ylboundary', 'reflect'),
-            'yrb': rp_get(rp, 'mesh.yrboundary', 'outflow'),
-        }
-        self.piston = {
-            "type": rp_get(rp, "piston.kind", "none"),
-            "U": float(rp_get(rp, "piston.U", 0.0)),
-            "A": float(rp_get(rp, "piston.A", 0.0)),
-            "f": float(rp_get(rp, "piston.f", 0.0)),
-            "ramp": float(rp_get(rp, "piston.rampTime", 0.0)),
-        }
-    def wall_speed(self, t):
-        kind = self.piston["type"]
-        if kind == "constant": return self.piston["U"]
-        if kind == "sine":
-            return self.piston["A"] * np.sin(2*np.pi*self.piston["f"]*t)
-        return 0.0
-    def apply_vertical_boundary(self, side, j, state, gamma, t):
-        u = state.u[j, 0 if side=='xlb' else -1]
-        p = state.p[j, 0 if side=='xlb' else -1]
-        rho = state.rho[j, 0 if side=='xlb' else -1]
-        if side=='xlb' and self.sides['xlb'] == 'piston':
-            uw = self.wall_speed(t); return wall_contact_linear(gamma, rho, u, p, uw)
-        if self.sides[side] == 'reflect':
-            return wall_contact_linear(gamma, rho, u, p, 0.0)
-        return u, p
-    def apply_horizontal_boundary(self, side, i, state, gamma, t):
-        v = state.v[0 if side=='ylb' else -1, i]
-        p = state.p[0 if side=='ylb' else -1, i]
-        rho = state.rho[0 if side=='ylb' else -1, i]
-        if self.sides[side] == 'reflect':
-            return wall_contact_linear(gamma, rho, v, p, 0.0)
-        return v, p
+        self.kind = rp.get_param("piston.kind", "none")
+        self.U = float(rp.get_param("piston.U", 0.0))
+        self.A = float(rp.get_param("piston.A", 0.0))
+        self.f = float(rp.get_param("piston.f", 0.0))
+        self.ramp = float(rp.get_param("piston.rampTime", 0.0))
+        self.side = rp.get_param("piston.side", "left")  # "left" or "right"
+
+    def piston_speed(self, t):
+        if self.kind == "constant":
+            vel = self.U
+        elif self.kind == "sine":
+            vel = self.U + self.A*np.sin(2.0*np.pi*self.f*t)
+        else:
+            return 0.0
+        if t < self.ramp:
+            return vel * (t/self.ramp)
+        return vel
+
+    def apply(self, mesh, state, t):
+        u = state.u
+        if self.kind != "none":
+            up = self.piston_speed(t)
+            if self.side == "left":
+                u[:, 0, 0] = up
+            else:
+                u[:, -1, 0] = up
+        # Periodic in y
+        u[0, :, 1] = u[1, :, 1]; u[-1, :, 1] = u[-2, :, 1]
+        # Outflow at opposite x: zero-gradient
+        u[:, -1, 0] = u[:, -2, 0]

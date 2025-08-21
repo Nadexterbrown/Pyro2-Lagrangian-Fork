@@ -5,14 +5,14 @@ from ..state import cons_from_prim
 def init_data(ccdata, rp):
     gamma = rp.get_param("eos.gamma", 1.4)
     ny, nx = ccdata._s.mesh.ny, ccdata._s.mesh.nx
-    rho0 = rp.get_param("ic.density", 1.0)
-    p0   = rp.get_param("ic.pressure", 1.0)
-    u0   = rp.get_param("ic.u", 0.0)
-    v0   = rp.get_param("ic.v", 0.0)
-    rho = rho0*np.ones((ny,nx))
-    u   = u0*np.ones((ny,nx))
-    v   = v0*np.ones((ny,nx))
-    p   = p0*np.ones((ny,nx))
+    Xc = ccdata._s.mesh.cell_centers()[...,0]
+    xmid = 0.5*(ccdata._s.mesh.xmin + ccdata._s.mesh.xmax)
+    rhoL, uL, vL, pL = 1.0, 0.0, 0.0, 1.0
+    rhoR, uR, vR, pR = 0.125, 0.0, 0.0, 0.1
+    rho = np.where(Xc < xmid, rhoL, rhoR)
+    u   = np.where(Xc < xmid, uL, uR)
+    v   = np.where(Xc < xmid, vL, vR)
+    p   = np.where(Xc < xmid, pL, pR)
     mom, Et = cons_from_prim(gamma, rho, u, v, p)
     ccdata.get_var("density")[:] = rho
     ccdata.get_var("x-momentum")[:] = mom[...,0]
