@@ -1,6 +1,5 @@
-# compressible_lagrangian (pure Lagrangian 2D solver)
-*Pyro2 API-compatible scaffold, corrected to use RuntimeParameters.get_param(name) without defaults.*
-
-- Uses `util.rp_get(rp, key, default)` everywhere a default is desired.
-- Purely Lagrangian update (pressure forces/work only; constant cell mass).
-- PVRS contact estimate (replaceable with HLLC/CGF later).
+# compressible_lagrangian (API fix)
+*Now fully aligned with Pyro2 problem API: `init_data(my_data, rp)`*
+- `Simulation.initialize()` calls `problem_func(my_data, rp)` where `my_data` is a cc_data-like shim.
+- After init, converts to Lagrangian mass via `m = rho * area`.
+- Uses `rp_get()` helper for params where defaults are desirable.

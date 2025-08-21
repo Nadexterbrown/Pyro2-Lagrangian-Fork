@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Optional, Callable, Dict, Any
+import numpy as np
 from .mesh import MovingQuadMesh, GridView
 from .state import CellState
 from .time_integration import SSPRK2Stepper
@@ -7,12 +8,11 @@ from .boundary import BoundaryManager
 from .util import rp_get
 
 class CCDataShim:
-    """Expose a Pyro-like cc_data interface over the moving mesh."""
+    """Expose a Pyro-like cc_data interface over the moving mesh for init/IO."""
     def __init__(self, mesh: MovingQuadMesh, state: CellState):
         self.grid: GridView = mesh.pyro_grid_view()
         self._state = state
         self.t = 0.0
-
     def get_var(self, name: str):
         if name == "density":
             return self._state.rho
@@ -47,14 +47,20 @@ class Simulation:
         self.dt: Optional[float] = None
 
     def initialize(self):
+        # Build geometry/state
         self.mesh = MovingQuadMesh(self.rp)
         self.state = CellState(self.mesh, self.rp)
-        self.problem_func(self)               # fill state.m, rho_u, rho_v, rho_E
+        # Provide a Pyro-like data handle for problem initialization
+        self.cc_data = CCDataShim(self.mesh, self.state)
+        # Call problem initializer with Pyro2 signature: (my_data, rp)
+        self.problem_func(self.cc_data, self.rp)
+        # Convert Eulerian init to Lagrangian mass: m = rho * area
+        self.state.m[:,:] = self.state.rho * self.mesh.area
+        # Ensure primitives are consistent
         self.state.sync_primitives(self.mesh)
+        # Boundaries & time integrator
         self.bc = BoundaryManager(self.rp)
         self.stepper = SSPRK2Stepper(self.rp)
-        self.cc_data = CCDataShim(self.mesh, self.state)
-        self.cc_data.t = 0.0
 
     def preevolve(self): pass
 
@@ -62,7 +68,6 @@ class Simulation:
         cfl = float(rp_get(self.rp, "driver.cfl"))
         self.dt = self.mesh.cfl_timestep(self.state, cfl)
         return self.dt
-
     dtdrive = compute_timestep
 
     def evolve(self, dt: float):

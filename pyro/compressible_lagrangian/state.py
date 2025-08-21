@@ -14,7 +14,6 @@ class CellState:
         self.u      = np.zeros((ny, nx))
         self.v      = np.zeros((ny, nx))
         self.p      = np.zeros((ny, nx))
-
     def sync_primitives(self, mesh):
         area = mesh.area
         self.rho = np.where(area > 0.0, self.m / area, 0.0)

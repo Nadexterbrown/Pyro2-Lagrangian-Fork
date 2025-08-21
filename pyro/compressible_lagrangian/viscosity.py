@@ -1,5 +1,4 @@
 import numpy as np
-
 def vnr_q_vertical(mesh, state, coeff):
     ny, nx = mesh.ny, mesh.nx
     q = np.zeros((ny, nx+1))
@@ -10,7 +9,6 @@ def vnr_q_vertical(mesh, state, coeff):
             if dudx < 0.0:
                 q[j,i] = coeff * state.rho[j,i-1] * (mesh.dx[j,i-1]**2) * (dudx**2)
     return q
-
 def vnr_q_horizontal(mesh, state, coeff):
     ny, nx = mesh.ny, mesh.nx
     q = np.zeros((ny+1, nx))
