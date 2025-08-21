@@ -1,6 +1,5 @@
 from __future__ import annotations
 from typing import Optional, Callable, Dict, Any
-import numpy as np
 from .mesh import MovingQuadMesh, GridView
 from .state import CellState
 from .time_integration import SSPRK2Stepper
@@ -47,18 +46,14 @@ class Simulation:
         self.dt: Optional[float] = None
 
     def initialize(self):
-        # Build geometry/state
         self.mesh = MovingQuadMesh(self.rp)
         self.state = CellState(self.mesh, self.rp)
-        # Provide a Pyro-like data handle for problem initialization
         self.cc_data = CCDataShim(self.mesh, self.state)
-        # Call problem initializer with Pyro2 signature: (my_data, rp)
+        # Pyro2 problem API: init_data(my_data, rp)
         self.problem_func(self.cc_data, self.rp)
-        # Convert Eulerian init to Lagrangian mass: m = rho * area
-        self.state.m[:,:] = self.state.rho * self.mesh.area
-        # Ensure primitives are consistent
+        # Convert Eulerian init to Lagrangian: m = rho * area
+        self.state.m[:, :] = self.state.rho * self.mesh.area
         self.state.sync_primitives(self.mesh)
-        # Boundaries & time integrator
         self.bc = BoundaryManager(self.rp)
         self.stepper = SSPRK2Stepper(self.rp)
 
