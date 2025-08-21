@@ -1,5 +1,6 @@
 from __future__ import annotations
 from typing import Optional, Callable, Dict, Any
+import numpy as np
 from .mesh import MovingQuadMesh, GridView
 from .state import CellState
 from .time_integration import SSPRK2Stepper
@@ -7,11 +8,21 @@ from .boundary import BoundaryManager
 from .util import rp_get
 
 class CCDataShim:
-    """Expose a Pyro-like cc_data interface over the moving mesh for init/IO."""
+    """Pyro-like cc_data shim for problem initialization and IO.
+
+    Provides:
+      - get_var(name): ndarray views for 'density', 'x-momentum', 'y-momentum', 'energy'
+      - set_aux(key, value) / get_aux(key): scalar aux storage (e.g., eos constants)
+      - .grid and .g: minimal GridView (ilo/ihi/jlo/jhi/ng and x/y lines)
+      - .t: simulation time
+    """
     def __init__(self, mesh: MovingQuadMesh, state: CellState):
         self.grid: GridView = mesh.pyro_grid_view()
+        self.g: GridView = self.grid   # alias used by Pyro problems
         self._state = state
+        self._aux: Dict[str, Any] = {}
         self.t = 0.0
+
     def get_var(self, name: str):
         if name == "density":
             return self._state.rho
@@ -22,6 +33,12 @@ class CCDataShim:
         if name == "energy":
             return self._state.rho_E
         raise KeyError(name)
+
+    def set_aux(self, key: str, value: Any):
+        self._aux[key] = value
+
+    def get_aux(self, key: str):
+        return self._aux[key]
 
 class Simulation:
     name = "compressible_lagrangian"
@@ -46,14 +63,18 @@ class Simulation:
         self.dt: Optional[float] = None
 
     def initialize(self):
+        # Build geometry/state
         self.mesh = MovingQuadMesh(self.rp)
         self.state = CellState(self.mesh, self.rp)
+        # Provide a Pyro-like data handle for problem initialization
         self.cc_data = CCDataShim(self.mesh, self.state)
-        # Pyro2 problem API: init_data(my_data, rp)
+        # Call problem initializer with Pyro2 signature: (my_data, rp)
         self.problem_func(self.cc_data, self.rp)
-        # Convert Eulerian init to Lagrangian: m = rho * area
-        self.state.m[:, :] = self.state.rho * self.mesh.area
+        # Convert Eulerian init to Lagrangian mass: m = rho * area
+        self.state.m[:,:] = self.state.rho * self.mesh.area
+        # Ensure primitives are consistent
         self.state.sync_primitives(self.mesh)
+        # Boundaries & time integrator
         self.bc = BoundaryManager(self.rp)
         self.stepper = SSPRK2Stepper(self.rp)
 

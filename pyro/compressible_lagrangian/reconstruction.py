@@ -5,7 +5,8 @@ def limited_slope(aL, aC, aR, limiter='minmod'):
         s = np.sign(dl) + np.sign(dr)
         return 0.5 * s * np.minimum(np.abs(dl), np.abs(dr))
     if limiter == 'mc':
-        return np.minimum.reduce([2*np.abs(dl), 2*np.abs(dr), 0.5*np.abs(dl+dr)]) * np.sign(dl+dr)
+        return np.minimum.reduce([2*np.abs(dl), 2*np.abs(dr),
+                                  0.5*np.abs(dl+dr)]) * np.sign(dl+dr)
     return 0.0
 def reconstruct_primitives(prim):
     rho = prim['rho']; u=prim['u']; v=prim['v']; p=prim['p']
