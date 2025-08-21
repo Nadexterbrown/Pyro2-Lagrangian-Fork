@@ -10,6 +10,4 @@ Modules:
   - riemann: Pyro-compatible API, returns ALE fluxes (F - w_n U_face), w_n = S_M
   - simulation: subclass/wrapper of Pyro compressible Simulation that installs the patch
 """
-from .simulation import Simulation
-
-__all__ = ["Simulation"]
+__all__ = ["simulation","riemann","unsplit_fluxes","eos","reconstruction","interface","derives"]
