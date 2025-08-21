@@ -1,3 +1,3 @@
 def test_import():
-    import pyro.compressible_lagrangian_pure as clp
-    assert hasattr(clp, "Simulation")
+    import pyro.compressible_lagrangian as cl
+    assert hasattr(cl, "Simulation")

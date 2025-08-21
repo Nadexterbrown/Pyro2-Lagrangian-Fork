@@ -4,7 +4,6 @@ def vnr_q_vertical(mesh, state, coeff):
     ny, nx = mesh.ny, mesh.nx
     q = np.zeros((ny, nx+1))
     if coeff <= 0.0: return q
-    # discrete divergence in x ~ du/dx
     for j in range(ny):
         for i in range(1, nx):
             dudx = (state.u[j,i] - state.u[j,i-1]) / (mesh.dx[j,i-1] + 1e-30)
