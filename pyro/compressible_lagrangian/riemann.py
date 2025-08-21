@@ -1,15 +1,20 @@
-"""
-Wrapper around Pyro's riemann.riemann_flux to add return_cons keyword.
-"""
 
-import pyro.compressible.riemann as base_riemann
+from pyro.compressible import riemann as euler_riemann
 
-def riemann_flux(dirn, q_l, q_r, *args, return_cons=False, **kwargs):
-    """
-    Wrapper to Pyro's riemann_flux to accept return_cons argument.
-    """
-    result = base_riemann.riemann_flux(dirn, q_l, q_r, *args, **kwargs)
-    if return_cons:
-        # Return flux and placeholder conserved state
-        return result, q_l.copy()
-    return result
+def riemann_flux(dim, U_L, U_R,
+                 cc_data, rp, ivars,
+                 solid_L=False, solid_R=False, tc=None,
+                 return_cons=False):
+    try:
+        mode = rp.get_param("compressible_lagrangian.mode")
+    except Exception:
+        mode = "passthrough"
+
+    if mode == "ale":
+        # TODO: implement ALE/Lagrangian flux. For now, fall back for stability.
+        pass
+
+    return euler_riemann.riemann_flux(dim, U_L, U_R,
+                                      cc_data, rp, ivars,
+                                      solid_L, solid_R, tc,
+                                      return_cons=return_cons)

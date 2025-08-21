@@ -1,14 +1,16 @@
-"""
-Simulation class for compressible_lagrangian.
-Currently delegates to compressible.Simulation for API compatibility.
-"""
 
-from pyro.compressible.simulation import Simulation as EulerianSimulation
-from . import riemann
+from pyro.compressible.simulation import Simulation as EulerSimulation
+from pyro.compressible import unsplit_fluxes as _base_unsplit
+from . import riemann as _lagr_riemann
 
-class Simulation(EulerianSimulation):
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Overwrite riemann solver with our wrapper
-        import pyro.compressible.riemann as base_riemann
-        base_riemann.riemann_flux = riemann.riemann_flux
+class Simulation(EulerSimulation):
+    name = "compressible_lagrangian"
+
+    def __init__(self, solver_name, problem_name, problem_func, rp,
+                 problem_finalize_func=None, problem_source_func=None, timers=None):
+        super().__init__(solver_name, problem_name, problem_func, rp,
+                         problem_finalize_func=problem_finalize_func,
+                         problem_source_func=problem_source_func,
+                         timers=timers)
+        # Route all unsplit calls to our riemann module (API-compatible wrapper)
+        _base_unsplit.riemann = _lagr_riemann
